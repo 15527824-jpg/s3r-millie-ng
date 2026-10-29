@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>元素雲長廊 S3R 吴芷悠 07</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+        }
+
+        body {
+            background: #0a2f5a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        .game-wrapper {
+            position: relative;
+            width: 1000px;
+            max-width: 100vw;
+            aspect-ratio: 16 / 9;
+            background: #b3e5fc;
+            border-radius: 28px;
+            box-shadow: 0 20px 30px rgba(0, 0, 0, 0.6);
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+            touch-action: none;
+        }
+
+        .start-screen, .end-screen {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(145deg, #00264d, #1b4e7a);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 20;
+            padding: 20px;
+            text-align: center;
+            backdrop-filter: blur(4px);
+            transition: opacity 0.4s ease;
+            touch-action: none;
+        }
+
+        .start-screen h1, .end-screen h1 {
+            font-size: clamp(1.6rem, 4.2vw, 2.8rem);
+            font-weight: 800;
+            letter-spacing: 2px;
+            text-shadow: 0 6px 0 #001d32, 0 10px 20px #00000050;
+            margin-bottom: 10px;
+            color: #f0f9ff;
+            line-height: 1.2;
+        }
+
+        .start-screen p, .end-screen p {
+            font-size: 1.25rem;
+            opacity: 0.9;
+            margin-bottom: 25px;
+            background: #00000030;
+            padding: 8px 24px;
+            border-radius: 100px;
+            backdrop-filter: blur(5px);
+        }
+
+        .start-screen button, .end-screen button {
+            background: #ffe484;
+            border: none;
+            color: #1a2f4b;
+            font-weight: 800;
+            font-size: 1.8rem;
+            padding: 16px 56px;
+            border-radius: 80px;
+            box-shadow: 0 10px 0 #b38f30, 0 12px 20px #00000050;
+            cursor: pointer;
+            transition: all 0.08s linear;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-top: 15px;
+            touch-action: manipulation;
+        }
+
+        .start-screen button:active, .end-screen button:active {
+            transform: translateY(6px);
+            box-shadow: 0 4px 0 #b38f30, 0 12px 20px #00000050;
+        }
+
+        .end-screen .score-display {
+            font-size: 3rem;
+            font-weight: 900;
+            color: #ffe484;
+            text-shadow: 0 5px 0 #6b4e00;
+            margin: 10px 0 20px;
+        }
+
+        .hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .hint {
+            position: absolute;
+            bottom: 15px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: #ffffffcc;
+            font-size: 0.9rem;
+            text-shadow: 0 2px 4px #000;
+            z-index: 5;
+            pointer-events: none;
+            letter-spacing: 1px;
+            transition: opacity 0.5s;
+        }
+    </style>
+</head>
+<body>
+<div class="game-wrapper">
+    <canvas id="gameCanvas"></canvas>
+    <div class="hint" id="hintMsg">👆 手指拖動 / 方向鍵 控制飛機</div>
+
+    <div class="start-screen" id="startScreen">
+        <h1>✈️ 元素雲長廊 S3R 吴芷悠 07</h1>
+        <p>看中文找符號 · 撞對得分 · 撞錯扣❤️ · 限時60秒</p>
+        <button id="startBtn">開始飛行</button>
+    </div>
+
+    <div class="end-screen hidden" id="endScreen">
+        <h1>飛行結束</h1>
+        <div class="score-display" id="finalScore">0</div>
+        <p>總得分</p>
+        <button id="restartBtn">再飛一次</button>
+    </div>
+</div>
+
+<script>
+    (function() {
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const hintMsg = document.getElementById('hintMsg');
+
+        const startScreen = document.getElementById('startScreen');
+        const endScreen = document.getElementById('endScreen');
+        const startBtn = document.getElementById('startBtn');
+        const restartBtn = document.getElementById('restartBtn');
+        const finalScoreSpan = document.getElementById('finalScore');
+
+        const LOGIC_WIDTH = 1000;
+        const LOGIC_HEIGHT = 562.5;
+
+        let gameActive = false;
+        let gameOverFlag = false;
+
+        let score = 0;
+        let hearts = 5;
+        const MAX_HEARTS = 5;
+        let targetElement = 'H';
+
+        // 限时 60 秒
+        const GAME_DURATION = 60;
+        let timeLeft = GAME_DURATION;
+
+        let plane = {
+            x: 80,
+            y: LOGIC_HEIGHT / 2,
+            width: 48,
+            height: 32,
+            speed: 380,
+            vx: 0,
+            vy: 0
+        };
+
+        const keys = {
+            ArrowUp: false,
+            ArrowDown: false,
+            ArrowLeft: false,
+            ArrowRight: false
+        };
+
+        let pointerTarget = null;
+        let isPointerActive = false;
+
+        const BASE_SCROLL_SPEED = LOGIC_WIDTH / 6;
+        let currentScrollSpeed = BASE_SCROLL_SPEED;
+
+        let speedMultiplier = 1.0;
+        const MAX_MULTIPLIER = 1.8;
+        let speedAccumTimer = 0;
+
+        let clouds = [];
+
+        const UPPER_MIN = 0.14, UPPER_MAX = 0.30;
+        const LOWER_MIN = 0.38, LOWER_MAX = 0.54;
+
+        // 云朵持续生成参数：每列独立维护，云从右侧补入
+        const COLUMN_GAP = 160;        // 列之间错开
+        const SPAWN_GAP_X = 560;       // 同一列云朵的前后距离（拉大，稀疏）
+        const CLOUD_WIDTH = 90;
+        const CLOUD_HEIGHT = 90;
+        const SPAWN_X = LOGIC_WIDTH + 200; // 新云从画面右侧外生成
+
+        const ELEMENTS = [
+            { sym: 'H', name: '氫' }, { sym: 'He', name: '氦' }, { sym: 'Li', name: '鋰' }, { sym: 'Be', name: '鈹' },
+            { sym: 'B', name: '硼' }, { sym: 'C', name: '碳' }, { sym: 'N', name: '氮' }, { sym: 'O', name: '氧' },
+            { sym: 'F', name: '氟' }, { sym: 'Ne', name: '氖' }, { sym: 'Na', name: '鈉' }, { sym: 'Mg', name: '鎂' },
+            { sym: 'Al', name: '鋁' }, { sym: 'Si', name: '矽' }, { sym: 'P', name: '磷' }, { sym: 'S', name: '硫' },
+            { sym: 'Cl', name: '氯' }, { sym: 'Ar', name: '氬' }, { sym: 'K', name: '鉀' }, { sym: 'Ca', name: '鈣' }
+        ];
+
+        function getRandomElementSym() {
+            return ELEMENTS[Math.floor(Math.random() * ELEMENTS.length)].sym;
+        }
+
+        function randBetween(min, max) {
+            return min + Math.random() * (max - min);
+        }
+
+        // 每列交替上下标记（0=上，1=下），用于保证同一列一上一下交替
+        const columnUpperToggle = [true, true, true];
+
+        // 创建一朵新云，返回云对象
+        function createCloud(col, x) {
+            const isUpper = columnUpperToggle[col];
+            columnUpperToggle[col] = !columnUpperToggle[col]; // 翻转，保证下一朵交替
+
+            const yPercent = isUpper
+                ? randBetween(UPPER_MIN, UPPER_MAX)
+                : randBetween(LOWER_MIN, LOWER_MAX);
+            const y = LOGIC_HEIGHT * yPercent;
+
+            return {
+                x: x,
+                y: y,
+                baseY: y,
+                width: CLOUD_WIDTH,
+                height: CLOUD_HEIGHT,
+                symbol: getRandomElementSym(),
+                column: col,
+                isUpper: isUpper,
+                phase: Math.random() * Math.PI * 2,
+                active: true,
+                missed: false
+            };
+        }
+
+        // 初始化云朵：三列，每列先放 2 朵，后面的在滚动中持续补入
+        function initClouds() {
+            clouds = [];
+            columnUpperToggle[0] = true;
+            columnUpperToggle[1] = true;
+            columnUpperToggle[2] = true;
+
+            for (let col = 0; col < 3; col++) {
+                for (let i = 0; i < 2; i++) {
+                    const x = SPAWN_X + i * SPAWN_GAP_X + col * COLUMN_GAP;
+                    clouds.push(createCloud(col, x));
+                }
+            }
+            ensureTargetCloudExists();
+        }
+
+        // 持续补云：检查每列最靠右的云，如果离右侧不够远，就在其右侧补一朵
+        function maintainClouds() {
+            for (let col = 0; col < 3; col++) {
+                const colClouds = clouds.filter(c => c.column === col && c.active);
+                // 找该列最靠右的云（x最大）
+                let maxX = -Infinity;
+                for (const c of colClouds) {
+                    if (c.x > maxX) maxX = c.x;
+                }
+                // 如果该列没有云，或者最右的云已经进入画面（x < SPAWN_X），就补一朵
+                // 用 SPAWN_GAP_X 作为补云间距，保证同一列始终有间隔
+                const threshold = LOGIC_WIDTH + 100;
+                if (colClouds.length === 0 || maxX < threshold) {
+                    // 新云位置：在该列最右云右侧 SPAWN_GAP_X 处；若无云则从 SPAWN_X 开始
+                    const newX = (maxX === -Infinity)
+                        ? SPAWN_X + col * COLUMN_GAP
+                        : maxX + SPAWN_GAP_X;
+                    clouds.push(createCloud(col, newX));
+                }
+            }
+        }
+
+        // 确保当前目标符号至少在一朵活跃云上
+        function ensureTargetCloudExists() {
+            const targetSym = targetElement;
+            const hasTarget = clouds.some(c => c.symbol === targetSym && c.active);
+            if (!hasTarget && clouds.length > 0) {
+                const candidates = clouds.filter(c => c.active && c.symbol !== targetSym);
+                if (candidates.length > 0) {
+                    const replaceCloud = candidates[Math.floor(Math.random() * candidates.length)];
+                    replaceCloud.symbol = targetSym;
+                } else if (clouds[0].active) {
+                    clouds[0].symbol = targetSym;
+                }
+            }
+        }
+
+        function resetGame() {
+            score = 0;
+            hearts = MAX_HEARTS;
+            speedMultiplier = 1.0;
+            currentScrollSpeed = BASE_SCROLL_SPEED;
+            speedAccumTimer = 0;
+            timeLeft = GAME_DURATION;
+            plane.x = 80;
+            plane.y = LOGIC_HEIGHT / 2;
+            plane.vx = 0;
+            plane.vy = 0;
+            pointerTarget = null;
+            isPointerActive = false;
+
+            const randomElem = ELEMENTS[Math.floor(Math.random() * ELEMENTS.length)];
+            targetElement = randomElem.sym;
+
+            initClouds(); // 初始化云朵，之后靠 maintainClouds 持续补充
+
+            for (let k in keys) keys[k] = false;
+
+            gameActive = true;
+            gameOverFlag = false;
+            endScreen.classList.add('hidden');
+            hintMsg.style.opacity = '1';
+            setTimeout(() => { if (gameActive) hintMsg.style.opacity = '0.4'; }, 3000);
+        }
+
+        function endGame() {
+            gameActive = false;
+            gameOverFlag = true;
+            finalScoreSpan.textContent = score;
+            endScreen.classList.remove('hidden');
+            hintMsg.style.opacity = '0';
+        }
+
+        function switchTarget() {
+            let newElem;
+            do {
+                newElem = ELEMENTS[Math.floor(Math.random() * ELEMENTS.length)];
+            } while (newElem.sym === targetElement && ELEMENTS.length > 1);
+            targetElement = newElem.sym;
+            ensureTargetCloudExists();
+        }
+
+        // 撞错云才扣心；错过目标云不扣
+        function loseHeart() {
+            if (!gameActive) return;
+            hearts--;
+            if (hearts <= 0) {
+                hearts = 0;
+                endGame();
+            }
+        }
+
+        function addScoreAndNext() {
+            score++;
+            switchTarget();
+        }
+
+        function updateGame(dt) {
+            if (!gameActive || gameOverFlag) return;
+
+            // 倒计时
+            timeLeft -= dt;
+            if (timeLeft <= 0) {
+                timeLeft = 0;
+                endGame();
+                return;
+            }
+
+            speedAccumTimer += dt;
+            if (speedAccumTimer >= 30) {
+                speedAccumTimer -= 30;
+                if (speedMultiplier < MAX_MULTIPLIER) {
+                    speedMultiplier = Math.min(MAX_MULTIPLIER, speedMultiplier + 0.1);
+                }
+            }
+            currentScrollSpeed = BASE_SCROLL_SPEED * speedMultiplier;
+
+            let moveX = 0, moveY = 0;
+            if (keys.ArrowLeft) moveX -= 1;
+            if (keys.ArrowRight) moveX += 1;
+            if (keys.ArrowUp) moveY -= 1;
+            if (keys.ArrowDown) moveY += 1;
+
+            if (moveX === 0 && moveY === 0 && isPointerActive && pointerTarget) {
+                const dx = pointerTarget.x - plane.x;
+                const dy = pointerTarget.y - plane.y;
+                const dist = Math.hypot(dx, dy);
+                if (dist > 5) {
+                    moveX = dx / dist;
+                    moveY = dy / dist;
+                }
+            }
+
+            if (moveX !== 0 || moveY !== 0) {
+                const len = Math.hypot(moveX, moveY);
+                moveX /= len;
+                moveY /= len;
+                plane.x += moveX * plane.speed * dt;
+                plane.y += moveY * plane.speed * dt;
+            }
+
+            plane.x = Math.max(plane.width / 2, Math.min(LOGIC_WIDTH - plane.width / 2, plane.x));
+            plane.y = Math.max(plane.height / 2, Math.min(LOGIC_HEIGHT - plane.height / 2, plane.y));
+
+            // 云朵滚动
+            const scrollDelta = currentScrollSpeed * dt;
+            for (let i = clouds.length - 1; i >= 0; i--) {
+                const c = clouds[i];
+                c.x -= scrollDelta;
+                c.y = c.baseY + Math.sin(Date.now() * 0.002 + c.phase) * 6;
+
+                // 云完全移出左侧：标记为 inactive，不再参与碰撞和绘制（不扣心！）
+                if (c.x + c.width < 0) {
+                    c.active = false;
+                }
+            }
+
+            // 清理完全移出屏幕且不活跃的云，保持数组精简
+            if (clouds.length > 40) {
+                clouds = clouds.filter(c => c.active || c.x + c.width > 0);
+            }
+
+            // 持续补云，保证画面里始终有云
+            maintainClouds();
+
+            // 确保目标符号存在（可能因为云被撞掉或移出而消失）
+            ensureTargetCloudExists();
+
+            // 碰撞检测
+            const planeRadius = 24;
+            for (let i = 0; i < clouds.length; i++) {
+                const c = clouds[i];
+                if (!c.active) continue;
+                const cx = c.x + c.width / 2;
+                const cy = c.y + c.height / 2;
+                const cloudRadius = c.width * 0.4;
+
+                const dist = Math.hypot(plane.x - cx, plane.y - cy);
+                if (dist < planeRadius + cloudRadius) {
+                    if (c.symbol === targetElement) {
+                        c.active = false;
+                        addScoreAndNext();
+                    } else {
+                        c.active = false;
+                        loseHeart();
+                    }
+                    if (!gameActive) return;
+                }
+            }
+        }
+
+        function drawHeart(x, y, size, color, shadowColor) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.shadowColor = shadowColor || 'transparent';
+            ctx.shadowBlur = shadowColor ? 10 : 0;
+            ctx.shadowOffsetY = shadowColor ? 4 : 0;
+
+            ctx.beginPath();
+            const s = size;
+            ctx.moveTo(0, s * 0.35);
+            ctx.bezierCurveTo(-s * 0.5, -s * 0.2, -s * 0.55, -s * 0.7, 0, -s * 0.5);
+            ctx.bezierCurveTo(s * 0.55, -s * 0.7, s * 0.5, -s * 0.2, 0, s * 0.35);
+            ctx.closePath();
+
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            if (color !== '#555e6b') {
+                ctx.shadowBlur = 0;
+                ctx.beginPath();
+                ctx.ellipse(-s * 0.2, -s * 0.25, s * 0.1, s * 0.12, -0.4, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff60';
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        function draw() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, LOGIC_HEIGHT);
+            gradient.addColorStop(0, '#8ec9f0');
+            gradient.addColorStop(0.6, '#b3e0ff');
+            gradient.addColorStop(1, '#d4efff');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, LOGIC_WIDTH, LOGIC_HEIGHT);
+
+            ctx.fillStyle = '#ffffff60';
+            for (let i = 0; i < 8; i++) {
+                const x = (Date.now() * 0.02 + i * 200) % 1200 - 100;
+                ctx.beginPath();
+                ctx.ellipse(x, 80, 90, 30, 0, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff80';
+                ctx.fill();
+            }
+
+            clouds.forEach(c => {
+                if (!c.active) return;
+                ctx.save();
+                ctx.translate(c.x + c.width/2, c.y + c.height/2);
+                ctx.shadowColor = '#00000020';
+                ctx.shadowBlur = 18;
+                ctx.shadowOffsetY = 6;
+                ctx.fillStyle = '#ffffff';
+                ctx.beginPath();
+                ctx.ellipse(-18, 0, 30, 26, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(18, -6, 32, 30, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(0, 10, 34, 26, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+
+                ctx.font = 'bold 38px "Segoe UI", "Roboto", system-ui, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = '#1a3e60';
+                ctx.shadowColor = '#ffffff';
+                ctx.shadowBlur = 8;
+                ctx.fillText(c.symbol, 0, -2);
+                ctx.restore();
+            });
+
+            ctx.save();
+            ctx.translate(plane.x, plane.y);
+            ctx.shadowColor = '#00000040';
+            ctx.shadowBlur = 20;
+            ctx.shadowOffsetY = 8;
+            ctx.fillStyle = '#f0d060';
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 30, 16, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#d4a017';
+            ctx.beginPath();
+            ctx.moveTo(-6, -8);
+            ctx.lineTo(14, -26);
+            ctx.lineTo(28, -22);
+            ctx.lineTo(8, -4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.moveTo(-6, 8);
+            ctx.lineTo(14, 26);
+            ctx.lineTo(28, 22);
+            ctx.lineTo(8, 4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = '#b8860b';
+            ctx.beginPath();
+            ctx.moveTo(-24, -6);
+            ctx.lineTo(-36, -16);
+            ctx.lineTo(-36, -2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = '#a0e0ff';
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.ellipse(12, -2, 10, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+
+            ctx.fillStyle = '#001a33cc';
+            ctx.shadowColor = '#00000060';
+            ctx.shadowBlur = 20;
+            ctx.fillRect(0, 0, LOGIC_WIDTH, 64);
+            ctx.shadowBlur = 0;
+
+            const targetElemObj = ELEMENTS.find(e => e.sym === targetElement) || { name: '?' };
+            ctx.font = 'bold 36px "Segoe UI", "Roboto", sans-serif';
+            ctx.fillStyle = '#ffeaa0';
+            ctx.shadowColor = '#000000';
+            ctx.shadowBlur = 12;
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(`🎯 請找到：${targetElemObj.name}`, 30, 36);
+
+            const secondsLeft = Math.ceil(timeLeft);
+            const timeColor = secondsLeft <= 10 ? '#ff6b6b' : '#ffffff';
+            ctx.font = 'bold 34px "Segoe UI", "Roboto", sans-serif';
+            ctx.fillStyle = timeColor;
+            ctx.shadowColor = '#000000';
+            ctx.shadowBlur = 10;
+            ctx.textAlign = 'center';
+            ctx.fillText(`⏱ ${secondsLeft}s`, LOGIC_WIDTH / 2, 36);
+
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+            for (let i = 0; i < MAX_HEARTS; i++) {
+                const heartX = LOGIC_WIDTH - 40 - i * 48;
+                const heartY = 36;
+                if (i < hearts) {
+                    drawHeart(heartX, heartY, 40, '#ff4d6d', '#4a0000');
+                } else {
+                    drawHeart(heartX, heartY, 40, '#555e6b', '#000000');
+                }
+            }
+
+            ctx.font = 'bold 32px "Segoe UI", "Roboto", sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.shadowColor = '#000000';
+            ctx.shadowBlur = 10;
+            ctx.textAlign = 'right';
+            ctx.fillText(`🏆 ${score}`, LOGIC_WIDTH - 30, 100);
+
+            ctx.shadowBlur = 0;
+            ctx.shadowColor = 'transparent';
+        }
+
+        let lastTimestamp = 0;
+        function gameLoop(now) {
+            if (!lastTimestamp) lastTimestamp = now;
+            const dt = Math.min(0.05, (now - lastTimestamp) / 1000);
+            lastTimestamp = now;
+
+            if (gameActive && !gameOverFlag) {
+                updateGame(dt);
+            }
+
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function initCanvasSize() {
+            canvas.width = LOGIC_WIDTH;
+            canvas.height = LOGIC_HEIGHT;
+        }
+
+        function getLogicPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = LOGIC_WIDTH / rect.width;
+            const scaleY = LOGIC_HEIGHT / rect.height;
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: Math.max(0, Math.min(LOGIC_WIDTH, (clientX - rect.left) * scaleX)),
+                y: Math.max(0, Math.min(LOGIC_HEIGHT, (clientY - rect.top) * scaleY))
+            };
+        }
+
+        function onPointerDown(e) {
+            e.preventDefault();
+            if (!gameActive) return;
+            pointerTarget = getLogicPos(e);
+            isPointerActive = true;
+        }
+
+        function onPointerMove(e) {
+            e.preventDefault();
+            if (!gameActive || !isPointerActive) return;
+            pointerTarget = getLogicPos(e);
+        }
+
+        function onPointerUp(e) {
+            e.preventDefault();
+            isPointerActive = false;
+            pointerTarget = null;
+        }
+
+        function onMouseMove(e) {
+            if (!gameActive) return;
+            pointerTarget = getLogicPos(e);
+            isPointerActive = true;
+        }
+
+        function onMouseLeave() {
+            isPointerActive = false;
+            pointerTarget = null;
+        }
+
+        function onMouseUp(e) {
+            isPointerActive = false;
+            pointerTarget = null;
+        }
+
+        function onMouseDown(e) {
+            if (!gameActive) return;
+            pointerTarget = getLogicPos(e);
+            isPointerActive = true;
+        }
+
+        function onKeyDown(e) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                keys[e.key] = true;
+                isPointerActive = false;
+                pointerTarget = null;
+            }
+        }
+
+        function onKeyUp(e) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                keys[e.key] = false;
+            }
+        }
+
+        function bindEvents() {
+            canvas.addEventListener('touchstart', onPointerDown, { passive: false });
+            canvas.addEventListener('touchmove', onPointerMove, { passive: false });
+            canvas.addEventListener('touchend', onPointerUp, { passive: false });
+            canvas.addEventListener('touchcancel', onPointerUp, { passive: false });
+
+            canvas.addEventListener('mousedown', onMouseDown);
+            canvas.addEventListener('mousemove', onMouseMove);
+            canvas.addEventListener('mouseup', onMouseUp);
+            canvas.addEventListener('mouseleave', onMouseLeave);
+
+            window.addEventListener('keydown', onKeyDown);
+            window.addEventListener('keyup', onKeyUp);
+
+            startBtn.addEventListener('click', () => {
+                startScreen.classList.add('hidden');
+                endScreen.classList.add('hidden');
+                resetGame();
+            });
+
+            restartBtn.addEventListener('click', () => {
+                endScreen.classList.add('hidden');
+                resetGame();
+            });
+        }
+
+        initCanvasSize();
+        bindEvents();
+        gameActive = false;
+        clouds = [];
+        requestAnimationFrame(gameLoop);
+    })();
+</script>
+</body>
+</html>
